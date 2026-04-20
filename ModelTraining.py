@@ -30,13 +30,33 @@ print("\n Resultados de la evaluación")
 print(f"Error absoluto medio (MAE): {mae:.2f}°C")
 print(f"Error cuadrático medio (MSE): {mse:.2f}")
 
-# Gráfico de predicción
+# --- CÓDIGO ACTUALIZADO PARA LA GRÁFICA CON FECHAS ---
+
+# 1. Recuperamos la columna de fechas y la convertimos al formato correcto
+ds['time'] = pd.to_datetime(ds['time'])
+
+# 2. Extraemos exactamente las fechas que corresponden al 20% de prueba (Test)
+fechas_test = ds['time'].iloc[y_test.index]
+
+# 3. Gráfico de predicción usando las fechas reales en el eje X
 plt.figure(figsize=(12,5))
-plt.plot(y_test.values[:100], label="Temperatura real", color="blue", marker="o", markersize=3)
-plt.plot(prediction[:100], label="Predicción del modelo", color="red", linestyle='dashed')
-plt.title("Temperatura Real vs Predicción (Primeras 100 horas del test)")
-plt.xlabel("Horas")
+
+# Usamos fechas_test[:100] en lugar de solo graficar los valores 'y'
+plt.plot(fechas_test[:100], y_test.values[:100], label="Temperatura real", color="blue", marker="o", markersize=3)
+plt.plot(fechas_test[:100], prediction[:100], label="Predicción del modelo", color="red", linestyle='dashed')
+
+plt.title("Temperatura Real vs Predicción (Primeras 100 horas de prueba)")
+plt.xlabel("Fecha y Hora")
 plt.ylabel("Temperatura (°C)")
 plt.legend()
 plt.grid(True)
+
+# Esto rota las fechas en el eje X para que no se encimen y sean legibles
+plt.xticks(rotation=45)
+plt.tight_layout() # Ajusta los márgenes para que todo quepa perfecto
+
 plt.show()
+
+# --- EXTRA PARA TU COMPARACIÓN CON EL SENSOR ---
+# Si quieres ver en la consola en qué fecha y hora exacta empezó la prueba:
+print(f"\nLas predicciones de prueba comienzan exactamente el: {fechas_test.iloc[0]}")
