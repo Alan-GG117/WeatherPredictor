@@ -61,7 +61,7 @@ def predictFuture(model, baseTemp, baseHour, predictHours=24):
 
         previousTemp = predictedTemp
 
-        return dates, predictions
+    return dates, predictions
 
 def plotResults(dates, predictions):
     plt.figure(figsize=(12, 6))
