@@ -1,62 +1,100 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import requests
 
-from sklearn.model_selection import train_test_split
+from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-print("Cargando datos limpios...")
-ds = pd.read_csv("Dataset_OpenMeteo_Cleaned.csv")
+def modelTraining(csv):
+    ds = pd.read_csv(csv)
+    X = ds[['hora', 'mes', 'dia_del_año', 'temp_hora_anterior']]
+    y = ds['temperatura']
 
-# 1. Asegurar que el tiempo está en el formato correcto
-ds['time'] = pd.to_datetime(ds['time'])
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model
 
-courtDate = input("Ingresa tu fecha de corte, considera: *FORMATO: YYYY-MM-DD*, *ULTIMA FECHA RESGISTRADA EN EL BANCO DE DATOS: 2026-04-17* \n")
 
-# 2. Entrenar antes de la fecha de corte
-trainData = ds[ds['time'] < courtDate]
-# 3. Probar después de la fecha de corte
-testData = ds[ds['time'] >= courtDate]
+def getCurrentWeather(latitud=19.4285, longitud=-99.1277):
+    # Cambié el %2F por una diagonal normal por si la librería requests se estaba confundiendo
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={latitud}&longitude={longitud}&current_weather=true&timezone=America/Mexico_City"
 
-# Separar Features (x) y Target (y) para entrenamiento
-X_train = trainData[['hora', 'mes', 'dia_del_año', 'temp_hora_anterior']]
-y_train = trainData['temperatura']
+    print(f"-> Consultando URL: {url}")
+    respuesta = requests.get(url)
 
-# Separar Features (x) y Target (y) para Prueba
-X_test = testData[['hora', 'mes', 'dia_del_año', 'temp_hora_anterior']]
-y_test = testData['temperatura']
+    if respuesta.status_code != 200:
+        print(f"Error de conexión. El servidor respondió con código: {respuesta.status_code}")
+        print(f"Mensaje del servidor: {respuesta.text}")
+        # Si falla, devolvemos un valor por defecto para que no truene tu programa
+        return 16.0, pd.to_datetime('today')
 
-# 4. Configuración del modelo
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-print(f"Entrenando modelo... (antes de {courtDate})")
-model.fit(X_train, y_train)
+    try:
+        datos = respuesta.json()
+        temp_actual = datos['current_weather']['temperature']
+        hora_actual = pd.to_datetime(datos['current_weather']['time'])
+        return temp_actual, hora_actual
+    except Exception as e:
+        print(f"Error al decodificar JSON. Respuesta cruda: {respuesta.text}")
+        return 16.0, pd.to_datetime('today')
 
-# 5. Predicción y evaluación
-prediction = model.predict(X_test)
-mae = mean_absolute_error(y_test, prediction)
-mse = mean_squared_error(y_test, prediction)
+def predictFuture(model, baseTemp, baseHour, predictHours=24):
+    predictions = []
+    dates = []
+    previousTemp = baseTemp
+    simulatedHour = baseHour
 
-print("\n --- Resultados de la evaluación ---")
-print(f"Inicio de predicciones: {courtDate}")
-print(f"Error absoluto medio: {mae:.2f}°C")
-print(f"Erro cuadrático medio: {mse:.2f}")
+    for _ in range(predictHours):
+        simulatedHour += timedelta(hours=1)
 
-# 6. Extracción de fechas para el gráfico
-plotDays = testData['time'].values
+        X_future = pd.DataFrame([{
+            'hora': simulatedHour.hour,
+            'mes': simulatedHour.month,
+            'dia_del_año': simulatedHour.dayofyear,
+            'temp_hora_anterior': previousTemp,
+        }])
 
-# Gráfico de predicción
-plt.figure(figsize=(12,5))
-plt.plot(plotDays[:100], y_test.values[:100],
-         label="Temperatura real (Open-Meteo)",
-         color="blue", marker="o", markersize=3)
-plt.plot(plotDays[:100], prediction[:100],
-         label="Predicción del modelo (RandomForest)",
-         color="red", linestyle='dashed')
-plt.title(f"Predicción de temperatura desde {courtDate}")
-plt.xlabel("Fecha y hora")
-plt.ylabel("Temperatura (°C)")
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
+        predictedTemp = model.predict(X_future)[0]
+        predictions.append(predictedTemp)
+        dates.append(simulatedHour)
+
+        previousTemp = predictedTemp
+
+        return dates, predictions
+
+def plotResults(dates, predictions):
+    plt.figure(figsize=(12, 6))
+    plt.plot(dates, predictions, marker='o', color='forestgreen', linestyle='-', linewidth=2)
+
+    for i in range (len(dates)):
+        plt.text(dates[i], predictions[i] + 0.2, f'{predictions[i]:.1f}°',
+                 ha='center', va='bottom', fontsize=9, color='black', fontweight='bold')
+
+    plt.title(f"Predicción del Clima - Próximas {len(dates)} horas\n(Iniciando el {dates[0].strftime('%Y-%m-%d')})")
+    plt.xlabel("Hora del día")
+    plt.ylabel("Temperatura (°C)")
+
+    plt.xticks(dates, [f.strftime('%H:00') for f in dates], rotation=45)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
+# Bloque principal de código
+if __name__ == "__main__":
+    archivo_datos = "Dataset_OpenMeteo_Cleaned.csv"
+
+    print("\n1. Entrenando modelo definitivo con el 100% de los datos...")
+    modelo_rf = modelTraining(archivo_datos)
+
+    print("2. Obteniendo clima actual de la API...")
+    temp_hoy, hora_hoy = getCurrentWeather()
+    print(f"   -> Temperatura base obtenida: {temp_hoy}°C a las {hora_hoy.strftime('%H:%M')}")
+
+    print("\n3. Generando pronóstico para las próximas 24 horas...")
+    fechas_futuras, temps_futuras = predictFuture(modelo_rf, temp_hoy, hora_hoy)
+
+    print("4. Abriendo gráfica de resultados...")
+    plotResults(fechas_futuras, temps_futuras)
+    print("\n¡Práctica ejecutada con éxito!")
